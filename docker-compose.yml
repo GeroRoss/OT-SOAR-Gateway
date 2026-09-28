@@ -1,0 +1,79 @@
+# Runs the OT-SOAR gateway, MQTT broker, development facility simulator, and dashboard.
+
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      GATEWAY_DB_PATH: /app/data/gateway.db
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+    volumes:
+      - gateway_data:/app/data
+    depends_on:
+      mqtt:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 2s
+
+  facility:
+    build:
+      context: .
+      dockerfile: simulator/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+    depends_on:
+      gateway:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 2s
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_GATEWAY_URL: http://localhost:8000
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+volumes:
+  gateway_data:
